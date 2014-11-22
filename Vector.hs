@@ -6,10 +6,10 @@ import Graphics.UI.GLUT hiding (scale, Vector3)
 class Vec a where
     (.+.) :: a -> a -> a
     opposite :: a -> a
-    dot :: a -> a -> GLfloat
-    scale :: a -> GLfloat -> a
+    dot :: a -> a -> GLdouble
+    scale :: a -> GLdouble -> a
 
-newtype Vector = Vector (GLfloat, GLfloat)
+newtype Vector = Vector (GLdouble, GLdouble)
     deriving Show
 
 instance Vec Vector where
@@ -18,7 +18,7 @@ instance Vec Vector where
     (Vector (x1, y1)) `dot` (Vector (x2, y2)) = x1  * x2 + y1 * y2 
     (Vector (x, y)) `scale` a = Vector (x * a, y * a)
 
-newtype Vector3 = Vector3 (GLfloat, GLfloat, GLfloat)
+newtype Vector3 = Vector3 (GLdouble, GLdouble, GLdouble)
     deriving Show
 
 instance Vec Vector3 where
@@ -30,10 +30,10 @@ instance Vec Vector3 where
 (.-.) :: Vec a => a -> a -> a
 v1 .-. v2 = v1 .+. opposite v2
 
-sqMagnitude :: Vec a => a -> GLfloat
+sqMagnitude :: Vec a => a -> GLdouble
 sqMagnitude v = v `dot` v
 
-magnitude :: Vec a => a -> GLfloat
+magnitude :: Vec a => a -> GLdouble
 magnitude v1 = sqrt $ sqMagnitude v1
 
 normalize :: Vec a => a -> a
