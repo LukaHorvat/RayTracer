@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 module Ray where
 
 import Scene
@@ -6,11 +7,10 @@ import Data.Maybe (mapMaybe)
 import Data.List (minimumBy)
 import Data.Ord (comparing)
 import Data.Fixed (mod')
-import Graphics.UI.GLUT (Color3(..), GLdouble)
 
 data Ray = Ray
-         { _start :: Vector3
-         , _direction :: Vector3 }
+         { _start :: !Vector3
+         , _direction :: !Vector3 }
 
 {-
     (x - xs)^2 + (y - ys)^2 + (z - zs)^2 = r^2
@@ -32,7 +32,8 @@ data Ray = Ray
     t1,2 = (-b +- sqrt(b^2 - 4ac)) / 2a
 -}
 intersect :: Ray -> Sphere -> Maybe Vector3
-intersect ray sphere
+{-# INLINE intersect #-}
+intersect !ray !sphere
     | cond && t > 0.1 = Just $ Vector3 (xr + t * xv, yr + t * yv, zr + t * zv)
     | otherwise       = Nothing
     where (Ray (Vector3 (xr, yr, zr)) (Vector3 (xv, yv, zv))) = ray
@@ -59,26 +60,31 @@ k(nx^2 + ny^2 + nz^2) + 2(x * nx + y * ny + z * nz) = 0
 k = -2(x * nx + y * ny + z * nz)/(nx^2 + ny^2 + nz^2)
 -}
 bounce :: Vector3 -> Vector3 -> Vector3 -> Ray
-bounce (Vector3 (x, y, z)) sphereC inter = Ray inter res
+{-# INLINE bounce #-}
+bounce (Vector3 (x, y, z)) !sphereC !inter = Ray inter res
     where (Vector3 (nx, ny, nz)) = inter .-. sphereC
           k = (-2) * (x * nx + y * ny + z * nz) / (nx ** 2 + ny ** 2 + nz ** 2)
           res = Vector3 (k * nx + x, k * ny + y, k * nz + z)
 
-cast :: Ray -> Scene -> Color3 GLdouble
-cast ray' (Scene spheres) = cast' 0 ray'
-    where cast' :: Int -> Ray -> Color3 GLdouble
-          cast' iter ray
-              | null intersections || iter > 3 = Color3 0 0 0
-              | otherwise                      = Color3 (red + recR) (green + recG) (blue + recB)
+type Color = (Double, Double, Double)
+
+cast :: Ray -> Scene -> Color
+{-# INLINE cast #-}
+cast !ray' (Scene spheres) = cast' 0 ray'
+    where cast' :: Int -> Ray -> Color
+          cast' !iter !ray
+              | null intersections || iter > 3 = (0, 0, 0)
+              | otherwise                      = (red + recR, green + recG, blue + recB)
               where pairs = map (\s -> (ray `intersect` s, s)) spheres
                     intersections = mapMaybe (\(mi, s) -> fmap (\i -> (i, s)) mi) pairs
                     start = _start ray
                     dists = map (sqMagnitude . (.-.) start . fst) intersections
                     (Vector3 (xi, yi, zi), Sphere c _ m) = fst $ minimumBy (comparing snd) $ zip intersections dists 
-                    (Color3 red green blue) = _glow m
-                    i' = Vector3 ( xi + (mod' (xi * 123456789) 2 - 1)  * _diffuse m 
-                                 , yi + (mod' (yi * 123456789) 2 - 1) * _diffuse m
-                                 , zi + (mod' (zi * 123456789) 2 - 1) * _diffuse m )
+                    (red, green, blue) = _glow m
+                    d = _diffuse m
+                    i' = Vector3 ( xi + (mod' (xi * 123456789) 2 - 1)  * d 
+                                 , yi + (mod' (yi * 123456789) 2 - 1) * d
+                                 , zi + (mod' (zi * 123456789) 2 - 1) * d )
                     reflect = bounce (_direction ray) c i'
-                    (Color3 recR recG recB) = cast' (iter + 1) reflect
+                    (recR, recG, recB) = cast' (iter + 1) reflect
 

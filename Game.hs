@@ -15,8 +15,9 @@ run :: IO ()
 run initialize initialState step input render mspf = do
     void getArgsAndInitialize
     initialDisplayMode $= [DoubleBuffered]
+    actionOnWindowClose $= MainLoopReturns
     --pointSmooth $= Enabled
-    void $ createWindow ""
+    _ <- createWindow ""
     initialize
     windowSize $= Size 300 300
     state <- newIORef initialState
@@ -24,11 +25,12 @@ run initialize initialState step input render mspf = do
         clear [ColorBuffer]
         readIORef state >>= render
         swapBuffers
+        --destroyWindow w
     let keyboardHandler key keyState mods pos = do
         modifyIORef state (input key keyState mods pos)
         postRedisplay Nothing
     keyboardMouseCallback $= Just keyboardHandler
-    fix $ \loop -> addTimerCallback mspf $ do
+    when (mspf /= 0) $ fix $ \loop -> addTimerCallback mspf $ do
         modifyIORef state (step 0)
         postRedisplay Nothing
         when (mspf /= 0) loop
