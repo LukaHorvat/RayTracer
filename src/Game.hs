@@ -6,7 +6,7 @@ import Data.IORef
 import Data.Function
 
 run :: IO ()
-    -> state 
+    -> state
     -> (GLdouble -> state -> state)
     -> (Key -> KeyState -> Modifiers -> Position -> state -> state)
     -> (state -> IO ())
@@ -27,8 +27,8 @@ run initialize initialState step input render mspf = do
         swapBuffers
         --destroyWindow w
     let keyboardHandler key keyState mods pos = do
-        modifyIORef state (input key keyState mods pos)
-        postRedisplay Nothing
+            modifyIORef state (input key keyState mods pos)
+            postRedisplay Nothing
     keyboardMouseCallback $= Just keyboardHandler
     when (mspf /= 0) $ fix $ \loop -> addTimerCallback mspf $ do
         modifyIORef state (step 0)
