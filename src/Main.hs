@@ -1,13 +1,14 @@
-{-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE PatternSynonyms, ViewPatterns, FlexibleContexts #-}
 module Main where
 
-import Prelude
+import Prelude hiding (fst, fromIntegral, map)
+import qualified Prelude as P
 
 import qualified Data.Array.IArray as IArray
-import Data.Array.Accelerate hiding (fromIntegral)
+import Data.Array.Accelerate
 import qualified Data.Array.Accelerate.CUDA as CUDA
 import Data.List (foldl1')
-import Graphics.UI.GLUT hiding (initialize, Sphere, Vector3, index)
+import Graphics.UI.GLUT hiding (initialize, Sphere, Vector3, index, scale, Clamp)
 import Vector
 import Game
 import Control.Monad
@@ -15,16 +16,16 @@ import Ray
 import Scene
 
 red :: Material
-red = Material (Color3 1 0 0) 0 (1, 0, 0)
+red = ((1, 0, 0), 0, (1, 0, 0))
 
-none :: Material
-none = Material (Color3 1 0 0) 0.0 (0.1, 0.1, 0.1)
+noColor :: Material
+noColor = ((1, 0, 0), 0.0, (0.1, 0.1, 0.1))
 
-scene :: Scene
-scene = Scene [ Sphere (Vector3 (-4, 0, 5 )) 2 none
-              , Sphere (Vector3 (4,  0, 5 )) 2 red
-              , Sphere (Vector3 (0,  1, 7 )) 1 none
-              , Sphere (Vector3 (0,  3, 10)) 2 none ]
+scene :: Acc Scene
+scene = use $ fromList (Z :. 4) [ ((-4, 0, 5 ), 2, noColor)
+                                , (( 4, 0, 5 ), 2, red)
+                                , (( 0, 1, 7 ), 1, noColor)
+                                , (( 0, 3, 10), 2, noColor) ]
 
 res :: Int
 res = 300
@@ -40,27 +41,38 @@ rppE = 2
 
 type State = (GLdouble, GLdouble, GLdouble)
 
+d :: Exp Int -> Exp Double
+d n = fromIntegral n / fromIntegral (resE * rppE) * 2.0 - 1.0
+
+generateCell :: (Exp Double, Exp Double, Exp Double)
+             -> Exp DIM2 -> Exp ((Double, Double, Double), Optional Ray)
+generateCell (cx, cy, cz) (unlift -> Z :. i :. j) = cast ray scene
+    where ray = Ray (V3 cx cy cz) (V3 (cx + x) (cy + y) (cz + 1.0))
+          (x, y) = (d j, d i)
+
+generate' :: Elt a => Exp DIM2 -> (Exp DIM2 -> Exp a) -> Acc (Array DIM2 a)
+generate' sh f = map f $ generate sh id
+
+-- avg :: Acc (Array DIM2 Vector3) -> Exp DIM2 -> Exp Vector3
+-- avg arr (unlift -> Z :. i :. j) = foldl1' (.+.) block `scale` fromIntegral (rppE * rppE)
+--     where range = [0..rpp - 1]
+--           block = [arr ! index2 (i * rppE + lift y) (j * rppE + lift x) | x <- range, y <- range]
+
+avg :: Stencil3x3 Vector3 -> Exp Vector3
+avg ((x11, x12, x13), (x21, x22, x23), (x31, x32, x33)) =
+    foldl1' (.+.) [x11, x12, x13, x21, x22, x23, x31, x32, x33] `scale` (1 / 9)
+
 render :: (GLdouble, GLdouble, GLdouble) -> IO ()
 {-# INLINE render #-}
-render (cx, cy, cz) = do
-    let d :: Int -> Double
-        d n = fromIntegral n / fromIntegral (res * rpp) * 2.0 - 1.0
-        generateCell :: DIM2 -> (Double, Double, Double)
-        generateCell (Z :. i :. j) = cast ray scene
-            where ray = Ray (Vector3 (cx, cy, cz)) (Vector3 (cx + x, cy + y, cz + 1.0))
-                  (x, y) = (d j, d i)
-        expanded = CUDA.run $ generate (index2 (resE * rppE) (resE * rppE)) (lift1 generateCell) :: Array DIM2 (Double, Double, Double)
-        addC (r1, g1, b1) (r2, g2, b2) = (r1 + r2, g1 + g2, b1 + b2)
-        divC (r, g, b) n = let x = fromIntegral n in (r / x, g / x, b / x)
-        avg (Z :. i :. j) = (lift2 divC) (foldl1' (lift2 addC) block) (rpp * rpp)
-            where range = [0..rpp - 1]
-                  block = [expanded ! (Z :. (i * rpp + y) :. (j * rpp + x)) | x <- range, y <- range]
-    let reduced :: IArray.Array (Int, Int) (Double, Double, Double)
-        reduced = toIArray (generate (Z :. res :. res) avg)
-    let points = [(i, j) | let s = [0..res - 1], i <- s, j <- s]
+render (cx', cy', cz') = do
+    let c = (lift cx', lift cy', lift cz')
+        expanded = generate' (index2 (resE * rppE) (resE * rppE)) (fst . generateCell c)
+        reduced :: IArray.Array (Int, Int) (Double, Double, Double)
+        reduced = toIArray $ CUDA.run (stencil avg Clamp expanded)
+        points = [(i * 2, j * 2) | let s = [0..res - 1], i <- s, j <- s]
     renderPrimitive Points $ forM_ points $ \(i, j) -> do
         when (i `mod` 100 == 0 && j == 0) (print i)
-        let (x, y) = (fromIntegral j / fromIntegral res * 2.0 - 1.0, fromIntegral i / fromIntegral res * 2.0 - 1.0)
+        let (x, y) = (P.fromIntegral j / P.fromIntegral res * 2.0 - 1.0, P.fromIntegral i / P.fromIntegral res * 2.0 - 1.0)
         let (r, g, b) = reduced IArray.! (i, j)
         color $ Color3 (realToFrac r :: GLdouble) (realToFrac g) (realToFrac b)
         vertex $ Vertex3 (x :: GLdouble) (y :: GLdouble) 0

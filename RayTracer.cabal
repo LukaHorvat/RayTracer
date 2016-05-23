@@ -1,8 +1,8 @@
-name:                RayTraces
+name:                RayTracer
 version:             0.1.0.0
 synopsis:            Simple project template from stack
 description:         Please see README.md
-homepage:            https://github.com/githubuser/RayTraces#readme
+homepage:            https://github.com/githubuser/RayTracer#readme
 license:             BSD3
 license-file:        LICENSE
 author:              Author name here
@@ -12,7 +12,7 @@ category:            Web
 build-type:          Simple
 cabal-version:       >=1.10
 
-executable RayTraces
+executable RayTracer
   hs-source-dirs:      src
   main-is:             Main.hs
   default-language:    Haskell2010

@@ -58,15 +58,13 @@ instance None Ray where
     zeroExp = lift (V3 0 0 0, V3 0 0 0)
 
 intersect :: Exp Ray -> Exp Sphere -> Exp (Optional Vector3)
-intersect (Ray (V3 xr yr zr) (V3 xv yv zv)) (Sphere (V3 xs ys zs) r _)
-    | cond && t > 0.1 = some $ V3 (xr + t * xv) (yr + t * yv) (zr + t * zv)
-    | otherwise       = none
+intersect (Ray (V3 xr yr zr) (V3 xv yv zv)) (Sphere (V3 xs ys zs) r _) =
+    cond (d >* 0 &&* t >* 0.1) (some $ V3 (xr + t * xv) (yr + t * yv) (zr + t * zv)) none
     where (xd, yd, zd) = (xr - xs, yr - ys, zr - zs)
           a = xv ** 2 + yv ** 2 + zv ** 2
           b = 2 * (xv * xd + yv * yd + zv * zd)
           c = xd ** 2 + yd ** 2 + zd ** 2 - r ** 2
           d = b ** 2 - 4 * a * c
-          cond = d > 0
           t = min ((-b + sqrt d) / (a * 2)) ((-b - sqrt d) / (a * 2))
 
 {-
