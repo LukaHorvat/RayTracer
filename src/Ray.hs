@@ -1,7 +1,8 @@
-{-# LANGUAGE ViewPatterns, PatternSynonyms, ScopedTypeVariables, TypeSynonymInstances, FlexibleInstances #-}
+{-# LANGUAGE ViewPatterns, PatternSynonyms, ScopedTypeVariables, TypeSynonymInstances
+           , FlexibleInstances, FunctionalDependencies #-}
 module Ray where
 
-import Prelude hiding (fst, snd, map, zip, null, filter, (<*))
+import Prelude hiding (fst, snd, map, zip, null, filter, (<*), fromIntegral, round)
 import Scene
 import Vector
 import Data.Maybe (mapMaybe)
@@ -51,11 +52,26 @@ class Elt a => None a where
 none :: None a => Exp (Optional a)
 none = lift (lift False :: Exp Bool, zeroExp)
 
-instance None Vector3 where
-    zeroExp = V3 0 0 0
+instance None Double where
+    zeroExp = 0
 
-instance None Ray where
-    zeroExp = lift (V3 0 0 0, V3 0 0 0)
+instance (None a, None b) => None (a, b) where
+    zeroExp = lift (zeroExp, zeroExp)
+
+instance (None a, None b, None c) => None (a, b, c) where
+    zeroExp = lift (zeroExp, zeroExp, zeroExp)
+
+class Packed p u | p -> u, u -> p where
+    unpack :: Exp p -> u
+    pack   :: u -> Exp p
+
+instance (Elt a, Elt b) => Packed (a, b) (Exp a, Exp b) where
+    unpack = unlift
+    pack = lift
+
+instance (Elt a, Elt b, Elt c) => Packed (a, b, c) (Exp a, Exp b, Exp c) where
+    unpack = unlift
+    pack = lift
 
 intersect :: Exp Ray -> Exp Sphere -> Exp (Optional Vector3)
 intersect (Ray (V3 xr yr zr) (V3 xv yv zv)) (Sphere (V3 xs ys zs) r _) =
@@ -88,26 +104,35 @@ bounce (V3 x y z) sphereC inter = Ray inter res
 
 type Color = Vector3
 
-minIntersect :: Exp ((Vector3, Sphere), Double) -> Exp ((Vector3, Sphere), Double) -> Exp ((Vector3, Sphere), Double)
-minIntersect a@(unlift -> (_ :: Exp (Vector3, Sphere), ad :: Exp Double))
-             b@(unlift -> (_ :: Exp (Vector3, Sphere), bd :: Exp Double)) =
-                 cond (ad <* bd) a b
+sphereRayDistance :: Exp Ray -> Exp Sphere -> Exp (Optional ((Vector3, Sphere), Double))
+sphereRayDistance ray sphere = cond exists (some res) none
+    where (exists, point) = unlift (ray `intersect` sphere)
+          start = _start ray
+          dist = sqMagnitude $ point .-. start
+          res = lift (lift (point, sphere) :: Exp (Vector3, Sphere), dist)
 
-cast :: Exp Ray -> Acc Scene -> Exp (Color, Optional Ray)
-cast ray' spheres = cast' ray'
-    where cast' :: Exp Ray -> Exp (Color, Optional Ray)
-          cast' ray = cond (null intersections)
-              (lift (V3 0 0 0, none))
-              (lift (V3 red green blue, some reflect))
-              where pairs = map (\s -> lift (ray `intersect` s, s)) spheres
-                    intersections = map (\p -> lift (snd (fst p), snd p)) $ filter (fst . fst) pairs
-                    start = _start ray
-                    dists = map (sqMagnitude . (.-.) start . fst) intersections
-                    expVecSphere = fst $ the $ fold1All minIntersect $ zip intersections dists
-                    (V3 xi yi zi, Sphere c _ m) = unlift expVecSphere :: (Exp Vector3, Exp Sphere)
-                    V3 red green blue = _glow m
-                    d = _diffuse m
-                    i' = V3 (xi + (mod' (xi * 123456789) 2 - 1) * d)
-                            (yi + (mod' (yi * 123456789) 2 - 1) * d)
-                            (zi + (mod' (zi * 123456789) 2 - 1) * d)
-                    reflect = bounce (_direction ray) c i'
+folder :: Exp Ray -> Exp ((Vector3, Sphere), Double) -> Exp Sphere -> Exp ((Vector3, Sphere), Double)
+folder ray a@(unpack -> (_, ad)) sp = cond (exists &&* bd <* ad) b a
+    where (exists, b@(unpack -> (_, bd))) = unpack $ sphereRayDistance ray sp
+
+unpackCast :: Exp ((Vector3, Sphere), Double) -> ((Exp Vector3, Exp Sphere), Exp Double)
+unpackCast packed = ((v, s), d)
+    where (p, d) = unpack packed
+          (v, s) = unpack p
+
+mod'' :: Exp Double -> Exp Double -> Exp Double
+mod'' x y = 0 -- x - (fromIntegral (round (x / y) :: Exp Int) * y)
+
+cast :: Exp Color -> Exp Ray -> Acc Scene -> Exp (Color, Optional Ray)
+cast oldColor ray spheres = -- cond (dist <* 10000000)
+    (lift (V3 (red + r) (green + g) (blue + b), some reflect))
+    -- (lift (V3 0 0 0, none))
+    where ((V3 xi yi zi, Sphere c _ m), dist) =
+              unpackCast $ sfoldl (folder ray) (pack (zeroExp, 10000000)) index0 spheres
+          V3 red green blue = _glow m
+          d = _diffuse m
+          i' = V3 (xi + mod'' (xi * 123456789) 2 * d)
+                  (yi + mod'' (yi * 123456789) 2 * d)
+                  (zi + mod'' (zi * 123456789) 2 * d)
+          reflect = bounce (_direction ray) c i'
+          (r, g, b) = unpack oldColor
